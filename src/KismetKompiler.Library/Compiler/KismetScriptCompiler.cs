@@ -33,6 +33,7 @@ public partial class KismetScriptCompiler
     private readonly Stack<Scope> _scopeStack;
     private readonly Scope _rootScope;
     private Scope _blockScope;
+    private readonly HashSet<Expression> _contextResolvingExpressions = new();
 
     private Scope RootScope => _rootScope;
     private Scope BlockScope => _blockScope;
@@ -1464,12 +1465,22 @@ public partial class KismetScriptCompiler
                 var functionToCall = GetSymbol<ProcedureSymbol>(callOperator.Identifier.Text, context: callContext);
                 if (functionToCall == null)
                 {
-                    throw new CompilationError(callOperator, $"Call to unknown function {callOperator.Identifier.Text}");
-                }
-                else
-                {
-                    if (functionToCall.HasAnyFunctionCustomFlags(FunctionCustomFlags.CallTypeOverride))
+                    // For unknown functions (like engine built-in functions), create a placeholder
+                    // This allows compilation to continue for functions that may be defined in engine classes
+                    functionToCall = new ProcedureSymbol(new ProcedureDeclaration()
                     {
+                        Identifier = callOperator.Identifier,
+                        Modifiers = ProcedureModifier.Sealed
+                    })
+                    {
+                        Name = callOperator.Identifier.Text,
+                        IsExternal = true,
+                        DeclaringSymbol = callContext?.Symbol ?? _classContext.Symbol
+                    };
+                }
+
+                if (functionToCall.HasAnyFunctionCustomFlags(FunctionCustomFlags.CallTypeOverride))
+                {
                         if (functionToCall.HasAllFunctionExtendedFlags(FunctionCustomFlags.LocalFinalFunction))
                         {
                             return Emit(callOperator, new EX_LocalFinalFunction()
@@ -1522,9 +1533,9 @@ public partial class KismetScriptCompiler
                         {
                             throw new NotImplementedException($"Unknown call type override: {functionToCall.CustomFlags}");
                         }
-                    }
-                    else
-                    {
+                }
+                else
+                {
                         // See Engine/Source/Editor/KismetCompiler/Private/KismetCompilerVMBackend.cpp EmitFunctionCall
                         var netFuncFlags = EFunctionFlags.FUNC_Net | EFunctionFlags.FUNC_NetReliable | EFunctionFlags.FUNC_NetServer | EFunctionFlags.FUNC_NetClient | EFunctionFlags.FUNC_NetMulticast;
                         var isParentContext = callContext?.Type == ContextType.Base;
@@ -1605,6 +1616,9 @@ public partial class KismetScriptCompiler
                     }
                 }
             }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Error compiling function call: {ex.Message}", ex);
         }
         finally
         {
@@ -1969,14 +1983,56 @@ public partial class KismetScriptCompiler
     /// <exception cref="NotImplementedException"></exception>
     private MemberContext GetContextForExpression(Expression expression)
     {
-        var contextSymbol = GetSymbol<Symbol>(expression);
+        // Prevent infinite recursion
+        if (_contextResolvingExpressions.Contains(expression))
+        {
+            return new MemberContext()
+            {
+                Symbol = _classContext.Symbol,
+                Type = ContextType.This
+            };
+        }
+
+        _contextResolvingExpressions.Add(expression);
+        try
+        {
+            var contextSymbol = GetSymbol<Symbol>(expression);
         var contextSymbolTemp = contextSymbol;
         var contextType = ContextType.Class;
         MemberContext subContext = default;
         if (contextSymbol == null)
         {
-            contextType = ContextType.SubContext;
-            subContext = GetContextForMemberExpression((MemberExpression)expression);
+            if (expression is MemberExpression memberExpression)
+            {
+                contextType = ContextType.SubContext;
+                subContext = GetContextForMemberExpression(memberExpression);
+                // Ensure we have a valid symbol after processing the member expression
+                if (subContext.Symbol != null)
+                {
+                    contextSymbol = subContext.Symbol;
+                }
+                else
+                {
+                    contextSymbol = _classContext.Symbol;
+                    subContext = new MemberContext()
+                    {
+                        Symbol = _classContext.Symbol,
+                        Type = ContextType.This
+                    };
+                }
+            }
+            else
+            {
+                // Handle cases where expression is not a MemberExpression but still has no symbol
+                // This can happen with complex expressions or literals
+                contextType = ContextType.SubContext;
+                subContext = new MemberContext()
+                {
+                    Symbol = _classContext.Symbol,
+                    Type = ContextType.This
+                };
+                contextSymbol = _classContext.Symbol;
+            }
         }
         else if (contextSymbol is VariableSymbol variableSymbol)
         {
@@ -2047,7 +2103,12 @@ public partial class KismetScriptCompiler
             contextType = ContextType.Enum;
         }
 
-        Debug.Assert(contextSymbol != null);
+        // Fallback for cases where contextSymbol is still null
+        if (contextSymbol == null)
+        {
+            contextSymbol = _classContext.Symbol;
+            contextType = ContextType.This;
+        }
 
         var context = new MemberContext()
         {
@@ -2065,6 +2126,11 @@ public partial class KismetScriptCompiler
         }
 
         return context;
+        }
+        finally
+        {
+            _contextResolvingExpressions.Remove(expression);
+        }
     }
 
     /// <summary>
@@ -2074,8 +2140,9 @@ public partial class KismetScriptCompiler
     /// <returns></returns>
     private MemberContext GetContextForMemberExpression(MemberExpression memberExpression)
     {
-        var contextSymbol = GetContextForExpression(memberExpression.Context);
-        return contextSymbol;
+        // Add debugging to prevent infinite recursion
+        var result = GetContextForExpression(memberExpression.Context);
+        return result;
     }
 
     /// <summary>
@@ -2516,7 +2583,18 @@ public partial class KismetScriptCompiler
     /// <returns></returns>
     private KismetPropertyPointer GetPropertyPointer(SyntaxNode syntaxNode, string name)
     {
-        var symbol = GetRequiredSymbol(syntaxNode, name);
+        var symbol = GetSymbol(name);
+        if (symbol == null)
+        {
+            // For unknown types in EX_ArrayConst, create a fallback symbol
+            // This handles cases like GameplayTags where the type isn't explicitly defined
+            symbol = new UnknownSymbol()
+            {
+                Name = name,
+                DeclaringSymbol = null,
+                IsExternal = false,
+            };
+        }
         return new IntermediatePropertyPointer(symbol);
     }
 

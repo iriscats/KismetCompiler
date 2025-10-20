@@ -513,7 +513,7 @@ public partial class PackageAnalyser
                     continue;
 
                 var classSymbol = _symbols.Where(x => x.Type == SymbolType.Class && x.HasMember(memberAccess.MemberSymbol.Name));
-                if (classSymbol.Count() == 1)
+                if (classSymbol.Count() == 1 && contextSymbol.ResolvedType != null)
                 {
                     contextSymbol.ResolvedType.AddSuperClass(classSymbol.First());
                 }
@@ -740,7 +740,10 @@ public partial class PackageAnalyser
             .GroupBy(x => x.ContextSymbol))
         {
             var contextSymbol = group.Key;
-            potentialBaseClasses.TryAdd(contextSymbol.ResolvedType, new());
+            if (contextSymbol.ResolvedType != null)
+            {
+                potentialBaseClasses.TryAdd(contextSymbol.ResolvedType, new());
+            }
 
             foreach (var memberAccess in group)
             {
@@ -749,7 +752,7 @@ public partial class PackageAnalyser
 
                 if (!contextSymbol.Flags.HasFlag(SymbolFlags.UnresolvedClass))
                 {
-                    if (memberAccess.MemberSymbol.Parent != null)
+                    if (memberAccess.MemberSymbol.Parent != null && contextSymbol.ResolvedType != null)
                     {
                         if (IsValidPotentialBaseClass(contextSymbol, memberAccess.MemberSymbol.Parent))
                             potentialBaseClasses[contextSymbol.ResolvedType].Add(memberAccess.MemberSymbol.Parent);
@@ -758,7 +761,7 @@ public partial class PackageAnalyser
                     {
                         foreach (var symbol in _symbols.Where(x => x.Type == SymbolType.Class && x.HasMember(memberAccess.MemberSymbol.Name)))
                         {
-                            if (IsValidPotentialBaseClass(contextSymbol, symbol))
+                            if (IsValidPotentialBaseClass(contextSymbol, symbol) && contextSymbol.ResolvedType != null)
                                 potentialBaseClasses[contextSymbol.ResolvedType].Add(symbol);
                         }
                     }

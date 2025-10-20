@@ -72,9 +72,42 @@ public partial class KismetDecompiler
             // Workaround for incomplete assets
             WriteImports();
             //WriteImportsOld();
-            foreach (var func in asset.Exports.Where(x => x is FunctionExport).Cast<FunctionExport>())
+
+            // Group functions by their outer class
+            var functionsByClass = asset.Exports
+                .Where(x => x is FunctionExport)
+                .Cast<FunctionExport>()
+                .GroupBy(x => x.OuterIndex.IsNull() ? null : x.OuterIndex.ToExport(asset))
+                .ToList();
+
+            foreach (var group in functionsByClass)
             {
-                DecompileFunction(func);
+                var classExport = group.Key;
+                if (classExport is ClassExport cls)
+                {
+                    // Write class definition
+                    var classBaseClass = _asset.GetName(cls.SuperStruct);
+                    var className = cls.ObjectName.ToString();
+
+                    _writer.WriteLine($"class {className} : {classBaseClass} {{");
+                    _writer.Push();
+
+                    foreach (var func in group)
+                    {
+                        DecompileFunction(func);
+                    }
+
+                    _writer.Pop();
+                    _writer.WriteLine("}\n");
+                }
+                else
+                {
+                    // Functions without a clear class, decompile them directly
+                    foreach (var func in group)
+                    {
+                        DecompileFunction(func);
+                    }
+                }
             }
         }
     }
@@ -97,11 +130,23 @@ public partial class KismetDecompiler
             .Union(_class.LoadedProperties.Select(x => new FPropertyData(_asset, x)))
             .ToList();
 
+        // Debug: Find all functions in the asset that belong to this class
+        var allFunctionsInAsset = _asset.Exports
+            .Where(x => x is FunctionExport)
+            .Cast<FunctionExport>()
+            .ToList();
+
+        var functionsWithThisOuter = allFunctionsInAsset
+            .Where(x => !x.OuterIndex.IsNull() && x.OuterIndex.ToExport(_asset) == _class)
+            .ToList();
+
         var classFunctions = classChildExports
             .Where(x => x is FunctionExport)
             .Cast<FunctionExport>()
+            .Union(functionsWithThisOuter)
             .OrderBy(x => _class.FuncMap.IndexOf(x.ObjectName));
 
+    
         var classModifiers = GetClassModifiers(_class);
         var classAttributes = GetClassAttributes(_class);
 

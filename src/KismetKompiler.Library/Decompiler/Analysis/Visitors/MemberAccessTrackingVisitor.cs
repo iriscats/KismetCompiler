@@ -188,6 +188,24 @@ public class MemberAccessTrackingVisitor : KismetExpressionVisitor
                     break;
                 }
 
+            case EX_DefaultVariable defaultVariable:
+                {
+                    var sym = EnsurePropertySymbolCreated(defaultVariable.Variable);
+
+                    if (!ActiveContextSymbol.HasMember(sym))
+                    {
+                        _context.UnexpectedMemberAccesses.Add(new MemberAccessContext()
+                        {
+                            ContextExpression = ActiveContext,
+                            ContextSymbol = ActiveContextSymbol,
+                            MemberExpression = defaultVariable,
+                            MemberSymbol = sym
+                        });
+                    }
+                    _expressionSymbolCache[defaultVariable] = sym;
+                }
+                break;
+
             case EX_InstanceVariable instanceVariable:
                 {
                     var sym = EnsurePropertySymbolCreated(instanceVariable.Variable);

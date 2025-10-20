@@ -27,7 +27,7 @@ CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
 
 var ver = EngineVersion.VER_UE4_27;
-DecompileOne(@"/Users/bytedance/Project/FSD/Content/EnemyPerf/InitCave.uasset", ver);
+DecompileOne(@"/Users/bytedance/Project/FSD/Content/WeaponsNTools/Grenades/Freeze/Grenade_Freeze.uasset", ver);
 
 static void DecompileOne(string path, EngineVersion ver, string? usmapPath = default)
 {
