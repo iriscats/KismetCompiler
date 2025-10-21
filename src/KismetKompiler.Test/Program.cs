@@ -8,6 +8,7 @@ using Newtonsoft.Json;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using System.IO;
 using UAssetAPI;
 using UAssetAPI.ExportTypes;
 using UAssetAPI.IO;
@@ -26,8 +27,35 @@ CultureInfo.CurrentUICulture = CultureInfo.InvariantCulture;
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 CultureInfo.DefaultThreadCurrentUICulture = CultureInfo.InvariantCulture;
 
-var ver = EngineVersion.VER_UE4_27;
-DecompileOne(@"/Users/bytedance/Project/FSD/Content/WeaponsNTools/Grenades/Freeze/Grenade_Freeze.uasset", ver);
+if (args.Length == 0)
+{
+    Console.WriteLine("Usage:");
+    Console.WriteLine("  -d <file>     Decompile .uasset to .kms");
+    Console.WriteLine("  -c <file>     Compile .kms to .uasset");
+    return;
+}
+
+var mode = args[0];
+var path = args.Length > 1 ? args[1] : "";
+
+if (string.IsNullOrEmpty(path))
+{
+    Console.WriteLine("Error: No file specified");
+    return;
+}
+
+switch (mode)
+{
+    case "-d":
+        DecompileOnly(path, EngineVersion.VER_UE4_27);
+        break;
+    case "-c":
+        CompileOnly(path, EngineVersion.VER_UE4_27);
+        break;
+    default:
+        Console.WriteLine($"Error: Unknown mode '{mode}'. Use -d for decompile or -c for compile");
+        break;
+}
 
 static void DecompileOne(string path, EngineVersion ver, string? usmapPath = default)
 {
@@ -42,18 +70,21 @@ static void DecompileOne(string path, EngineVersion ver, string? usmapPath = def
         asset = LoadAsset(path, ver);
     }
 
-    DecompileClass(asset, "old_out.c");
-    var script = CompileClass("old_out.c", ver);
+    var kmsPath = Path.ChangeExtension(path, ".kms");
+    DecompileClass(asset, kmsPath);
+
+    var script = CompileClass(kmsPath, ver);
     var newAsset = new UAssetLinker((UAsset)asset)
         .LinkCompiledScript(script)
         .Build();
 
     var old = ((FunctionExport)newAsset.Exports.Where(x => x is FunctionExport).FirstOrDefault());
     KismetSerializer.asset = newAsset;
-
     DumpOldAndNew(path, newAsset, script);
 
+    newAsset.Write(Path.ChangeExtension(path, ".new.uasset"));
 }
+
 
 static UAsset LoadAsset(string filePath, EngineVersion version)
 {
@@ -112,12 +143,70 @@ static CompiledScriptContext CompileClass(string inPath, EngineVersion engineVer
         if (ex.InnerException is InputMismatchException innerEx)
         {
             var lines = File.ReadAllLines(inPath);
-            PrintSyntaxError(innerEx.OffendingToken.Line, innerEx.OffendingToken.Column, innerEx.OffendingToken.Column + innerEx.OffendingToken.Text.Length - 1,
-                lines);
+            PrintSyntaxError(innerEx.OffendingToken.Line, 
+            innerEx.OffendingToken.Column, 
+            innerEx.OffendingToken.Column + innerEx.OffendingToken.Text.Length - 1,
+            lines);
         }
 
         throw;
     }
+}
+
+static void DecompileOnly(string path, EngineVersion ver, string? usmapPath = default)
+{
+    UnrealPackage asset;
+    if (!string.IsNullOrEmpty(usmapPath))
+    {
+        var usmap = new Usmap(usmapPath);
+        asset = new ZenAsset(path, ver, usmap);
+    }
+    else
+    {
+        asset = LoadAsset(path, ver);
+    }
+
+    var kmsPath = Path.ChangeExtension(path, ".kms");
+    DecompileClass(asset, kmsPath);
+    Console.WriteLine($"Decompiled: {path} -> {kmsPath}");
+}
+
+static void CompileOnly(string path, EngineVersion ver, string? assetPath = default)
+{
+    if (!File.Exists(path))
+    {
+        Console.WriteLine($"Error: Input file {path} does not exist");
+        return;
+    }
+
+    var script = CompileClass(path, ver);
+
+    string outputPath;
+    if (!string.IsNullOrEmpty(assetPath))
+    {
+        outputPath = assetPath;
+    }
+    else
+    {
+        // Load the original asset if we're compiling a .kms file
+        var originalAssetPath = Path.ChangeExtension(path, ".uasset");
+        if (File.Exists(originalAssetPath))
+        {
+            var asset = LoadAsset(originalAssetPath, ver);
+            var newAsset = new UAssetLinker((UAsset)asset)
+                .LinkCompiledScript(script)
+                .Build();
+            outputPath = Path.ChangeExtension(path, ".compiled.uasset");
+            newAsset.Write(outputPath);
+        }
+        else
+        {
+            Console.WriteLine($"Error: Cannot find original asset file {originalAssetPath} for compilation");
+            return;
+        }
+    }
+
+    Console.WriteLine($"Compiled: {path} -> {outputPath}");
 }
 
 static void DumpOldAndNew(string fileName, UnrealPackage asset, CompiledScriptContext script)
