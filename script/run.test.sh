@@ -1,1 +1,1 @@
-/Users/bytedance/Project/KismetCompiler/src/KismetKompiler.Test/bin/Debug/net9.0/KismetKompiler.Test -c "/Users/bytedance/Project/FSD/Content/WeaponsNTools/Grenades/ITM_AOE_Grenade_Base.kms"
+/Users/bytedance/Project/KismetCompiler/src/KismetKompiler.Test/bin/Debug/net9.0/KismetCompiler -d "/Users/bytedance/Project/DRG/Game/BP_PlayerControllerBase.uasset"

@@ -1,1 +1,1 @@
-dotnet build src/KismetKompiler.Test/KismetKompiler.Test.csproj
+dotnet build src/KismetKompiler.Test/KismetCompiler.csproj

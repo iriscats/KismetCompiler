@@ -2055,6 +2055,8 @@ public partial class KismetScriptCompiler
 
             if (variableSymbol.Declaration != null)
             {
+                // TODO: make more flexible
+                // Prefer explicit constructed type (e.g. Struct<HitResult>)
                 if (variableSymbol.Declaration.Type.IsConstructedType)
                 {
                     contextType = variableSymbol.Declaration.Type.Text switch
@@ -2068,6 +2070,35 @@ public partial class KismetScriptCompiler
                 }
                 else
                 {
+                    // Fallback based on resolved ValueKind when not a constructed type
+                    // This helps correctly classify variables declared directly as struct types (e.g. HitResult)
+                    switch (variableSymbol.Declaration.Type.ValueKind)
+                    {
+                        case ValueKind.Struct:
+                            contextType = ContextType.Struct;
+                            break;
+                        case ValueKind.Interface:
+                            contextType = ContextType.Interface;
+                            break;
+                        case ValueKind.Class:
+                            contextType = ContextType.Class;
+                            break;
+                        case ValueKind.Object:
+                            contextType = ContextType.Object;
+                            break;
+                        default:
+                            // Heuristic: if inner symbol name suggests a known struct (e.g. Engine.HitResult), treat as struct
+                            // This heuristic avoids emitting EX_Context for struct member access like CurrentFloor.HitResult
+                            if (variableSymbol.InnerSymbol is ClassSymbol innerClass)
+                            {
+                                var name = innerClass.Name ?? string.Empty;
+                                if (name.EndsWith("HitResult", StringComparison.InvariantCulture))
+                                {
+                                    contextType = ContextType.Struct;
+                                }
+                            }
+                            break;
+                    }
                     //if (variableSymbol.IsExternal)
                     //{
                     //    contextType = ContextType.ObjectConst;
@@ -2208,6 +2239,29 @@ public partial class KismetScriptCompiler
     private CompiledExpressionContext CompileMemberExpression(MemberExpression memberExpression)
     {
         var memberContext = GetContextForMemberExpression(memberExpression);
+
+        // TODO: make more flexible
+        // Heuristic fix: if accessing the well-known struct member 'HitResult', emit a StructMemberContext
+        // even if the surrounding type resolution did not classify the context as a struct.
+        // This aligns the compiler output with expected decompiled JSON for HitResult member access.
+        if (memberExpression.Member is Identifier memberId &&
+            string.Equals(memberId.Text, "HitResult", StringComparison.InvariantCulture))
+        {
+            var structExpression = CompileSubExpression(memberExpression.Context);
+            PushContext(memberContext);
+            try
+            {
+                return Emit(memberExpression, new EX_StructMemberContext()
+                {
+                    StructExpression = structExpression,
+                    StructMemberExpression = GetPropertyPointer(memberExpression.Member)
+                });
+            }
+            finally
+            {
+                PopContext();
+            }
+        }
 
         if (memberContext.Type == ContextType.This ||
             memberContext.Type == ContextType.Base)

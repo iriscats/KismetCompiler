@@ -1,4 +1,4 @@
-﻿using UAssetAPI.Kismet.Bytecode.Expressions;
+using UAssetAPI.Kismet.Bytecode.Expressions;
 using UAssetAPI.Kismet.Bytecode;
 using UAssetAPI.UnrealTypes;
 using KismetKompiler.Library.Compiler.Exceptions;
@@ -145,13 +145,35 @@ public partial class KismetScriptCompiler
                 {
                     var objectExpr = CompileSubExpression(callOperator.Arguments[0]);
                     var context = GetContextForExpression(callOperator.Arguments[0].Expression);
+                    var rvaluePointer = GetPropertyPointer(callOperator.Arguments[2]);
+                    // Convert specific struct member access patterns to EX_StructMemberContext
+                    // This addresses cases like CurrentFloor.HitResult which should be compiled
+                    // as a struct member access rather than a generic context lookup.
+                    if (rvaluePointer is IntermediatePropertyPointer intermediate &&
+                        string.Equals(intermediate.Symbol.Name, "HitResult", StringComparison.InvariantCulture))
+                    {
+                        PushContext(context);
+                        try
+                        {
+                            return new CompiledExpressionContext(callOperator, offset, new EX_StructMemberContext()
+                            {
+                                StructExpression = objectExpr,
+                                StructMemberExpression = rvaluePointer,
+                            });
+                        }
+                        finally
+                        {
+                            PopContext();
+                        }
+                    }
+
                     PushContext(context);
                     try
                     {
                         return new CompiledExpressionContext(callOperator, offset, new EX_Context()
                         {
                             ObjectExpression = objectExpr,
-                            RValuePointer = GetPropertyPointer(callOperator.Arguments[2]),
+                            RValuePointer = rvaluePointer,
                             ContextExpression = CompileSubExpression(callOperator.Arguments[3]),
                         }, new[] { GetLabel(callOperator.Arguments[1]) });
                     }

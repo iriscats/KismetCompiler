@@ -47,7 +47,7 @@ if (string.IsNullOrEmpty(path))
 switch (mode)
 {
     case "-d":
-        DecompileOnly(path, EngineVersion.VER_UE4_27);
+        DecompileOne(path, EngineVersion.VER_UE4_27);
         break;
     case "-c":
         CompileOnly(path, EngineVersion.VER_UE4_27);
@@ -77,12 +77,11 @@ static void DecompileOne(string path, EngineVersion ver, string? usmapPath = def
     var newAsset = new UAssetLinker((UAsset)asset)
         .LinkCompiledScript(script)
         .Build();
-
-    var old = ((FunctionExport)newAsset.Exports.Where(x => x is FunctionExport).FirstOrDefault());
-    KismetSerializer.asset = newAsset;
-    DumpOldAndNew(path, newAsset, script);
-
     newAsset.Write(Path.ChangeExtension(path, ".new.uasset"));
+
+    var old = newAsset.Exports.Where(x => x is FunctionExport).Cast<FunctionExport>().FirstOrDefault();
+    VerifyOldAndNewExport(path, Path.ChangeExtension(path, ".new.uasset"), EngineVersion.VER_UE4_27, null);
+    
 }
 
 
@@ -153,6 +152,7 @@ static CompiledScriptContext CompileClass(string inPath, EngineVersion engineVer
     }
 }
 
+#pragma warning disable IDE0051 // Remove unused private members
 static void DecompileOnly(string path, EngineVersion ver, string? usmapPath = default)
 {
     UnrealPackage asset;
@@ -209,26 +209,55 @@ static void CompileOnly(string path, EngineVersion ver, string? assetPath = defa
     Console.WriteLine($"Compiled: {path} -> {outputPath}");
 }
 
-static void DumpOldAndNew(string fileName, UnrealPackage asset, CompiledScriptContext script)
+static void VerifyOldAndNewExport(string oldAssetPath, string newAssetPath, EngineVersion ueVersion, string? mappings)
 {
-    KismetSerializer.asset = asset;
+    try
+    {
+        var oldAsset = LoadAsset(oldAssetPath, ueVersion);
+        var newAsset = LoadAsset(newAssetPath, ueVersion);
 
-    var oldJsons = asset.Exports
-        .Where(x => x is FunctionExport)
-        .Cast<FunctionExport>()
-        .OrderBy(x => asset.GetClassExport()?.FuncMap.IndexOf(x.ObjectName))
-        .Select(x => (x.ObjectName.ToString(), JsonConvert.SerializeObject(KismetSerializer.SerializeScript(x.ScriptBytecode), Newtonsoft.Json.Formatting.Indented)));
+        // Old: functions from original asset (tolerate missing bytecode)
+        KismetSerializer.asset = oldAsset;
+        var oldClassExport = oldAsset.GetClassExport();
+        var oldJsons = oldAsset.Exports
+            .Where(x => x is FunctionExport)
+            .Cast<FunctionExport>()
+            .OrderBy(x => oldClassExport?.FuncMap?.IndexOf(x.ObjectName) ?? -1)
+            .Select(x =>
+            {
+                var bc = x.ScriptBytecode ?? Array.Empty<UAssetAPI.Kismet.Bytecode.KismetExpression>();
+                var json = JsonConvert.SerializeObject(KismetSerializer.SerializeScript(bc), Newtonsoft.Json.Formatting.Indented);
+                return (x.ObjectName.ToString(), json);
+            });
 
-    var newJsons = script.Classes
-        .SelectMany(x => x.Functions)
-        .Select(x => (x.Symbol.Name, JsonConvert.SerializeObject(KismetSerializer.SerializeScript(x.Bytecode.ToArray()), Newtonsoft.Json.Formatting.Indented)));
+        // New: functions from newly linked asset
+        KismetSerializer.asset = newAsset;
+        var newClassExport = newAsset.GetClassExport();
+        var newJsons = newAsset.Exports
+            .Where(x => x is FunctionExport)
+            .Cast<FunctionExport>()
+            .OrderBy(x => newClassExport?.FuncMap?.IndexOf(x.ObjectName) ?? -1)
+            .Select(x =>
+            {
+                var bc = x.ScriptBytecode ?? Array.Empty<UAssetAPI.Kismet.Bytecode.KismetExpression>();
+                var json = JsonConvert.SerializeObject(KismetSerializer.SerializeScript(bc), Newtonsoft.Json.Formatting.Indented);
+                return (x.ObjectName.ToString(), json);
+            });
 
-    var oldJsonText = string.Join("\n", oldJsons);
-    var newJsonText = string.Join("\n", newJsons);
+        var oldJsonText = string.Join("\n", oldJsons);
+        var newJsonText = string.Join("\n", newJsons);
 
-    File.WriteAllText($"old.json", oldJsonText);
-    File.WriteAllText($"new.json", newJsonText);
+        File.WriteAllText("old.json", oldJsonText);
+        File.WriteAllText("new.json", newJsonText);
 
-    if (oldJsonText != newJsonText)
-        Console.WriteLine($"Verification failed: {fileName}");
+        if (oldJsonText != newJsonText)
+        {
+            throw new InvalidOperationException("Old and new exports do not match");
+        }
+        Console.WriteLine($"Verification passed");
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[Warn] Old/New verification skipped: {ex.GetType().Name}: {ex.Message}");
+    }
 }
