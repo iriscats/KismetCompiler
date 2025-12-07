@@ -1,4 +1,4 @@
-﻿using KismetKompiler.Library.Compiler.Exceptions;
+using KismetKompiler.Library.Compiler.Exceptions;
 using KismetKompiler.Library.Syntax.Statements.Expressions.Binary;
 using KismetKompiler.Library.Syntax.Statements.Expressions;
 using KismetKompiler.Library.Syntax;
@@ -973,7 +973,51 @@ public partial class KismetScriptCompiler
 
     private CompiledExpressionContext CompileNegationOperator(NegationOperator negationOperator)
     {
-        throw new NotImplementedException();
+        var kind = negationOperator.ExpressionValueKind;
+        if (kind == ValueKind.Float)
+        {
+            return CompileMultiplicationOperator(new MultiplicationOperator()
+            {
+                Left = negationOperator.Operand,
+                Right = new FloatLiteral(-1),
+                ExpressionValueKind = ValueKind.Float,
+                SourceInfo = negationOperator.SourceInfo
+            });
+        }
+        else if (kind == ValueKind.Int)
+        {
+            return CompileMultiplicationOperator(new MultiplicationOperator()
+            {
+                Left = negationOperator.Operand,
+                Right = new IntLiteral(-1),
+                ExpressionValueKind = ValueKind.Int,
+                SourceInfo = negationOperator.SourceInfo
+            });
+        }
+        else if (kind == ValueKind.Vector)
+        {
+            return CompileMultiplicationOperator(new MultiplicationOperator()
+            {
+                Left = negationOperator.Operand,
+                Right = new FloatLiteral(-1),
+                ExpressionValueKind = ValueKind.Vector,
+                SourceInfo = negationOperator.SourceInfo
+            });
+        }
+        else if (kind == ValueKind.Rotator)
+        {
+            return CompileMultiplicationOperator(new MultiplicationOperator()
+            {
+                Left = negationOperator.Operand,
+                Right = new FloatLiteral(-1),
+                ExpressionValueKind = ValueKind.Rotator,
+                SourceInfo = negationOperator.SourceInfo
+            });
+        }
+        else
+        {
+            throw new CompilationError(negationOperator, "Unsupported negation operand type");
+        }
     }
 
     private CompiledExpressionContext CompileLogicalNotOperator(LogicalNotOperator logicalNotOperator)
@@ -1044,11 +1088,36 @@ public partial class KismetScriptCompiler
 
     private CompiledExpressionContext CompileInitializerList(InitializerList initializerListExpression)
     {
-        throw new NotImplementedException();
+        var expr = new EX_ArrayConst()
+        {
+            InnerProperty = new KismetPropertyPointer()
+            {
+                Old = FPackageIndex.Null,
+                New = FFieldPath.Null
+            },
+            Elements = initializerListExpression.Expressions.Select(x => CompileSubExpression(x)).ToArray()
+        };
+        return Emit(initializerListExpression, expr, new EX_EndArrayConst());
     }
 
     private CompiledExpressionContext CompileNewExpression(NewExpression newExpression)
     {
-        throw new NotImplementedException();
+        if (newExpression.IsArray)
+        {
+            var expr = new EX_ArrayConst()
+            {
+                InnerProperty = new KismetPropertyPointer()
+                {
+                    Old = FPackageIndex.Null,
+                    New = FFieldPath.Null
+                },
+                Elements = newExpression.Initializer.Select(x => CompileSubExpression(x)).ToArray()
+            };
+            return Emit(newExpression, expr, new EX_EndArrayConst());
+        }
+        else
+        {
+            throw new NotImplementedException();
+        }
     }
 }

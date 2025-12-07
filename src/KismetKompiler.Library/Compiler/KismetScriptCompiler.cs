@@ -2507,7 +2507,26 @@ public partial class KismetScriptCompiler
         if (name == "<null>")
             return FPackageIndex.Null;
 
-        var symbol = GetRequiredSymbol(syntaxNode, name, context);
+        var symbol = GetSymbol(name, context);
+        if (symbol == null)
+        {
+            // Create a placeholder symbol for external/unknown members
+            // This allows compilation to continue for functions/properties that are defined in engine classes
+            var declaringSymbol = context?.Symbol ?? _classContext.Symbol;
+
+            // Create a placeholder procedure symbol
+            symbol = new ProcedureSymbol(new ProcedureDeclaration()
+            {
+                Identifier = new Identifier() { Text = name },
+                Modifiers = ProcedureModifier.Sealed
+            })
+            {
+                Name = name,
+                IsExternal = true,
+                DeclaringSymbol = declaringSymbol
+            };
+        }
+
         return new IntermediatePackageIndex(symbol);
     }
 
@@ -2746,9 +2765,22 @@ public partial class KismetScriptCompiler
                 var defaultTerm = callOperator.Arguments[2];
                 return GetSymbolName(defaultTerm.Expression);
             }
+            else if (callOperator.Identifier.Text == "EX_FinalFunction" ||
+                     callOperator.Identifier.Text == "EX_VirtualFunction" ||
+                     callOperator.Identifier.Text == "EX_LocalFinalFunction" ||
+                     callOperator.Identifier.Text == "EX_LocalVirtualFunction")
+            {
+                // For function calls, get the symbol name from the function name (first argument)
+                return GetSymbolName(callOperator.Arguments.First().Expression);
+            }
+            else if (callOperator.Identifier.Text == "EX_Context")
+            {
+                // For EX_Context, get the symbol name from the object expression (first argument)
+                return GetSymbolName(callOperator.Arguments.First().Expression);
+            }
             else
             {
-                throw new NotImplementedException();
+                throw new NotImplementedException($"GetSymbolName not implemented for CallOperator: {callOperator.Identifier.Text}");
             }
         }
         else
@@ -2830,9 +2862,22 @@ public partial class KismetScriptCompiler
                 var defaultTerm = callOperator.Arguments[2];
                 return GetSymbol<T>(defaultTerm.Expression);
             }
+            else if (callOperator.Identifier.Text == "EX_FinalFunction" ||
+                     callOperator.Identifier.Text == "EX_VirtualFunction" ||
+                     callOperator.Identifier.Text == "EX_LocalFinalFunction" ||
+                     callOperator.Identifier.Text == "EX_LocalVirtualFunction")
+            {
+                // For function calls, get the symbol from the function name (first argument)
+                return GetSymbol<T>(callOperator.Arguments.First().Expression);
+            }
+            else if (callOperator.Identifier.Text == "EX_Context")
+            {
+                // For EX_Context, get the symbol from the object expression (first argument)
+                return GetSymbol<T>(callOperator.Arguments.First().Expression);
+            }
             else
             {
-                throw new NotImplementedException();
+                throw new NotImplementedException($"GetSymbol<T> not implemented for CallOperator: {callOperator.Identifier.Text}");
             }
         }
         else

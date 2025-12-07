@@ -1,4 +1,4 @@
-﻿using KismetKompiler.Library.Syntax;
+using KismetKompiler.Library.Syntax;
 using KismetKompiler.Library.Syntax.Statements;
 using KismetKompiler.Library.Syntax.Statements.Declarations;
 using KismetKompiler.Library.Syntax.Statements.Expressions;
@@ -257,6 +257,12 @@ public class TypeResolver
             foreach (var expr in newExpression.Initializer)
             {
                 ResolveTypesInExpression(expr);
+            }
+
+            if (!newExpression.IsArray)
+            {
+                ResolveTypesInTypeIdentifier(newExpression.TypeIdentifier);
+                newExpression.ExpressionValueKind = newExpression.TypeIdentifier.ValueKind;
             }
         }
         else if (expression is SubscriptOperator subscriptOperator)

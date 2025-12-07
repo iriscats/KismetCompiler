@@ -477,43 +477,22 @@ namespace KismetKompiler.Decompiler
                     }
                 case EX_Context expr:
                     {
-                        if (UseContext)
+                        // Always generate explicit EX_Context intrinsic call
+                        // This preserves the Context information during decompile->compile round-trip
+                        var @object = FormatExpression(expr.ObjectExpression, expr);
+
+                        // Compile context expression WITHOUT using context (to avoid nested member access syntax)
+                        var savedUseContext = UseContext;
+                        UseContext = false;
+                        try
                         {
-                            if (expr.ObjectExpression is EX_InterfaceContext subExpr)
-                            {
-                                _context = new Context()
-                                {
-                                    Expression = FormatExpression(subExpr.InterfaceValue, expr),
-                                    Type = ContextType.Interface,
-                                };
-                            }
-                            else
-                            {
-                                var @object = FormatExpression(expr.ObjectExpression, expr);
-                                _context = new Context()
-                                {
-                                    Expression = @object,
-                                    Type = ContextType.Default
-                                };
-                            }
-                            var context = FormatExpression(expr.ContextExpression, expr);
-                            _context = null;
-
-                            var offset = expr.Offset;
-                            var rvalue = _asset.GetPropertyName(expr.RValuePointer, _useFullPropertyNames);
-
-
-
-                            return context;
-                            //return $"{context}.{@object}";
+                            var contextExpression = FormatExpression(expr.ContextExpression, expr);
+                            // Generate EX_Context(object, contextExpression) intrinsic call
+                            return $"EX_Context({@object}, {contextExpression})";
                         }
-                        else
+                        finally
                         {
-                            var @object = FormatExpression(expr.ObjectExpression, expr);
-                            var context = FormatExpression(expr.ContextExpression, expr);
-                            var offset = expr.Offset;
-                            var rvalue = FormatString(_asset.GetPropertyName(expr.RValuePointer, _useFullPropertyNames));
-                            return $"EX_Context({@object}, {offset}, {rvalue}, {context})";
+                            UseContext = savedUseContext;
                         }
                     }
                 case EX_IntConst expr:
