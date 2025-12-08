@@ -543,6 +543,12 @@ public abstract partial class PackageLinker<T> where T : UnrealPackage
                 throw new NotImplementedException();
             }
         }
+        else if (symbol is UnknownSymbol)
+        {
+            // For UnknownSymbol, we cannot resolve the actual package index
+            // This will be handled specially in FixPropertyPointer to preserve the name
+            return FPackageIndex.Null;
+        }
         else
         {
             throw new NotImplementedException();
@@ -555,13 +561,27 @@ public abstract partial class PackageLinker<T> where T : UnrealPackage
         {
             if (SerializeLoadedProperties)
             {
+                // For UnknownSymbol, still preserve the property name even if we can't resolve the owner
+                FPackageIndex resolvedOwner;
+                if (iProperty.Symbol is UnknownSymbol)
+                {
+                    // Cannot resolve owner for unknown symbols, but UAssetAPI requires a non-zero
+                    // ResolvedOwner.Index to serialize the Path[0] (property name).
+                    // Use index -1 as a placeholder to trigger the serialization path.
+                    resolvedOwner = new FPackageIndex(-1);
+                }
+                else
+                {
+                    resolvedOwner = EnsurePackageIndexForSymbolCreated(iProperty.Symbol.DeclaringSymbol);
+                }
+
                 pointer = new KismetPropertyPointer()
                 {
                     Old = FPackageIndex.Null,
                     New = new()
                     {
                         Path = new[] { AddName(iProperty.Symbol.Name) },
-                        ResolvedOwner = EnsurePackageIndexForSymbolCreated(iProperty.Symbol.DeclaringSymbol),
+                        ResolvedOwner = resolvedOwner,
                     }
                 };
             }
